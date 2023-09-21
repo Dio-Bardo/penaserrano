@@ -1,0 +1,163 @@
+---
+- name: Instalar PHP, MySQL, Apache2 y libapache2-mod-php en Ubuntu Server
+  hosts: all
+  become: yes
+  tasks:
+    - name: Instalar Apache2
+      apt:
+        name: apache2
+        state: present
+
+    - name: Instalar MySQL
+      apt:
+        name: mysql-server
+        state: present
+      vars:
+        mysql_root_password: 4ntil0p3
+
+    - name: Instalar php-mysqli
+      apt:
+        name: php-mysqli
+        state: present
+
+
+    - name: Instalar PHP y módulo para Apache
+      apt:
+        name:
+          - php
+          - libapache2-mod-php
+        state: present
+
+    - name: Instalar python3-mysqldb
+      apt:
+        name: python3-mysqldb
+        state: present
+
+    - name: Permitir tráfico HTTP en el puerto 80
+      ufw:
+        rule: allow
+        port: 80
+        proto: tcp
+
+    - name: Instalar UFW (Uncomplicated Firewall)
+      apt:
+        name: ufw
+        state: present
+
+    - name: Reiniciar Apache2
+      service:
+        name: apache2
+        state: restarted
+
+    - name: Crear usuario 'papu' en MySQL con todos los privilegios
+      mysql_user:
+        name: papu
+        host: 192.168.1.16
+        password: 4ntil0p3
+        priv: '*.*:ALL'
+        state: present
+
+    - name: Configurar MySQL para que escuche en 192.168.1.16
+      lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: '^bind-address\s*='
+        line: 'bind-address = 192.168.1.16'
+
+    - name: Reiniciar el servicio MySQL para aplicar cambios
+      service:
+        name: mysql
+        state: restarted
+
+    - name: Crear carpeta /var/www/app.rpeñaserrano.com
+      file:
+        path: /var/www/app.rpeñaserrano.com
+        state: directory
+        mode: '0755'
+
+    - name: Copiar archivo de configuración del VirtualHost para app.rpeñaserrano.com
+      copy:
+        src: /etc/ansible/app.rpeñaserrano.com.conf
+        dest: /etc/apache2/sites-available/
+      notify: Reiniciar Apache2
+
+    - name: Desactivar todos los sitios
+      shell: a2dissite *
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Habilitar el VirtualHost
+      command: a2ensite app.rpeñaserrano.com.conf
+      args:
+        executable: /usr/sbin/a2ensite
+      notify: Reiniciar Apache2
+
+  handlers:
+    - name: Reiniciar Apache2
+      service:
+        name: apache2
+        state: restarted
+
+- name: Crear la base de datos y tablas en MySQL
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Crear la base de datos
+      mysql_db:
+        name: nombre_de_la_base_de_datos
+        state: present
+      environment:
+        MYSQL_USER: papu
+        MYSQL_HOST: 192.168.1.16
+        MYSQL_PASSWORD: 4ntil0p3
+
+    - name: Usar la base de datos
+      mysql_db:
+        name: nombre_de_la_base_de_datos
+      environment:
+        MYSQL_USER: papu
+        MYSQL_HOST: 192.168.1.16
+        MYSQL_PASSWORD: 4ntil0p3
+
+- name: Ejecutar consulta SQL
+  hosts: 192.168.1.16
+  become: yes
+  tasks:
+    - name: Verificar si la tabla 'usuarios' existe
+      command: mysql -u papu -p4ntil0p3 -h 192.168.1.16 -e "SELECT 1 FROM nombre_de_la_base_de_datos.usuarios LIMIT 1;"
+      register: table_check
+      ignore_errors: yes
+
+    - name: Crear la tabla 'usuarios' si no existe
+      command: mysql -u papu -p4ntil0p3 -h 192.168.1.16 -e "USE nombre_de_la_base_de_datos; CREATE TABLE usuarios (id INT AUTO_INCREMENT PRIMARY KEY, nombre VARCHAR(255) NOT NULL, correo VARCHAR(255) NOT NULL, contrasena VARCHAR(255) NOT NULL);"
+      when: table_check.rc != 0
+
+    - name: Salir de MySQL
+      command: mysql -u papu -p4ntil0p3 -h 192.168.1.16 -e "EXIT"
+
+
+
+- name: Copiar archivos HTML y PHP a /var/www/app.rpeñaserrano.com
+  hosts: all
+  become: yes
+  tasks:
+    - name: Copiar archivos HTML y PHP
+      copy:
+        src: /etc/ansible/registrar.php
+        dest: /var/www/app.rpeñaserrano.com
+      notify: Reiniciar Apache2
+
+    - name: Copiar archivo PHP
+      copy:
+        src: /etc/ansible/registro.html
+        dest: /var/www/app.rpeñaserrano.com
+      notify: Reiniciar Apache2
+
+  handlers:
+    - name: Reiniciar Apache2
+      service:
+        name: apache2
+        state: restarted
+
+
